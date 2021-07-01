@@ -1,0 +1,278 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Network Template
+
+Resources:
+
+# VPC 만들기
+
+  TemplateVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+       - Key: Name
+         Value: Lab-VPC
+
+# InternetGateway만들기
+
+  TemplateIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: Lab-IGW
+
+# InternetGateway연결하기
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref TemplateVPC
+      InternetGatewayId: !Ref TemplateIGW
+
+
+
+# 퍼블릭 서브넷 생성
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TemplateVPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: Lab-PublicSubnet1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TemplateVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 2
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: Lab-PublicSubnet2
+
+# 프라이빗 서브넷(앱서버 생성)
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TemplateVPC
+      CidrBlock: 10.0.2.0/23
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: Lab-PrivateSubnet1
+      - Key: Use
+        Value: app-subnet1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TemplateVPC
+      CidrBlock: 10.0.4.0/23
+      AvailabilityZone: !Select
+        - 2
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: Lab-PrivateSubnet2
+      - Key: Use
+        Value: app-subnet2
+
+# 프라이빗 서브넷(데이터서브넷 생성)
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TemplateVPC
+      CidrBlock: 10.0.6.0/23
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: Lab-PrivateSubnet3
+      - Key: Use
+        Value: data-subnet1
+
+  PrivateSubnet4:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref TemplateVPC
+      CidrBlock: 10.0.8.0/23
+      AvailabilityZone: !Select
+        - 2
+        - Fn::GetAZs: !Ref AWS::Region
+      Tags:
+      - Key: Name
+        Value: Lab-PrivateSubnet4
+      - Key: Use
+        Value: data-subnet2
+
+# 퍼블릭 서브넷1, 2에 연결할 NATGATEWAY생성
+
+  TemplateNAT1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - EIP1
+        - AllocationId
+      SubnetId:
+        Ref: PublicSubnet1
+      Tags:
+      - Key: Name
+        Value: Lab-NAT1
+
+  TemplateNAT2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - EIP2
+        - AllocationId
+      SubnetId:
+        Ref: PublicSubnet2
+      Tags:
+      - Key: Name
+        Value: Lab-NAT2
+
+# NAT게이트웨이에 연결할 EIP 생성
+
+  EIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  EIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+
+
+# PublicRouteTable 만들기(PublicSubnet1에 연결할 것)
+
+  PublicRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TemplateVPC
+      Tags:
+      - Key: Name
+        Value: Lab-PublicRT
+
+# PrivateRouteTable 만들기(NAT용 PrivateSubnet에 연결할 것)
+
+  PrivateRT1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TemplateVPC
+      Tags:
+      - Key: Name
+        Value: Lab-PrivateRT1
+      - Key: Use
+        Value: NAT1
+
+  PrivateRT2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TemplateVPC
+      Tags:
+      - Key: Name
+        Value: Lab-PrivateRT2
+      - Key: Use
+        Value: NAT2
+
+# PrivateRouteTable 만들기(Private데이터서버용서브넷)
+
+  PrivateRT3:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref TemplateVPC
+      Tags:
+      - Key: Name
+        Value: Lab-PrivateRT3
+
+# 위에서 만든 라우팅 테이블의 라우팅 설정
+
+  PubRoute:
+    Type: AWS::EC2::Route
+    DependsOn: PublicRT
+    Properties:
+       RouteTableId: !Ref PublicRT
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId: !Ref TemplateIGW
+
+#NATGATEWAY 라우팅 (privatesubnet1에서 나오는 것 > 앱서버)
+
+  PriRoute1:
+    Type: AWS::EC2::Route
+    DependsOn: PrivateRT1
+    Properties:
+      RouteTableId: !Ref PrivateRT1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref TemplateNAT1
+
+  PriRoute2:
+    Type: AWS::EC2::Route
+    DependsOn: PrivateRT2
+    Properties:
+      RouteTableId: !Ref PrivateRT2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref TemplateNAT2
+
+
+# 퍼블릭 서브넷과 퍼블릭 라우팅 테이블 연결
+
+  PublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRT
+
+  PublicSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRT
+
+# 프라이빗 서브넷과 프라이빗 라우팅 테이블 연결(앱서버용)
+
+  PrivateSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRT1
+
+  PrivateSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRT2
+
+# 프라이빗 서브넷과 프라이빗 라우팅 테이블 연결(데이터 서버용)
+
+  PrivateSubnetRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet3
+      RouteTableId: !Ref PrivateRT3
+
+  PrivateSubnetRouteTableAssociation4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet4
+      RouteTableId: !Ref PrivateRT3
