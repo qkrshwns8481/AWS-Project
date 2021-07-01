@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Network Template
+
+# 스택이름을 입력할 수 있음(Network에서 내보낸 export이름을 이 입력값을 통해 사용 가능 )
+
+Parameters:
+
+# 입력할 수 있게 만든 건 영문자, 숫자, -
+
+  NetworkStackName:
+    Description: Network Template Stack Name
+    Type: String
+    AllowedPattern: ^[a-zA-Z0-9-]*$
+    Default: Network
+
+# 출력을 통해 내보낸 변수들은 importvalue를 사용해서 가져온다.
+
+Resources:
+
+
+# ELB용 보안그룹
+
+  ALBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to client host
+      GroupName: ALB-SG
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: ALB-SG
+
+
+
+# ALB만들기, ALB리스너(HTTP80), ALB타겟그룹(시작되면 60초후에 요청 받음)
+
+  TemplateLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: Lab-ALB
+      SecurityGroups:
+      - !Ref ALBSG
+      Subnets:
+      - Fn::ImportValue:
+          !Sub ${NetworkStackName}-Public1
+      - Fn::ImportValue:
+          !Sub ${NetworkStackName}-Public2
+      Tags:
+      - Key: Name
+        Value: Lab-ALB
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref TemplateLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Port: 80
+      Protocol: HTTP
+      Name: Lab-Target
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPC
+      TargetGroupAttributes:
+        - Key: slow_start.duration_seconds
+          Value: 60
